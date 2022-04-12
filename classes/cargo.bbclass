@@ -139,9 +139,9 @@ cargo_do_install() {
     for tgt in "${cargo_bindir}"/*; do
         case $tgt in
             *.so|*.rlib)
-                install -d "${D}${libdir}"
-                install -m755 "$tgt" "${D}${libdir}"
-                files_installed="$files_installed $tgt"
+#                install -d "${D}${libdir}"
+#                install -m755 "$tgt" "${D}${libdir}"
+#                files_installed="$files_installed $tgt"
                 ;;
             *examples)
                 if [ -d "$tgt" ]; then
