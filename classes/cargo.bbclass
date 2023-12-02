@@ -1,4 +1,4 @@
-inherit rust-common
+inherit rust_bin-common
 
 # Many crates rely on pkg-config to find native versions of their libraries for
 # linking - do the simple thing and make it generally available.
@@ -51,31 +51,7 @@ CARGO_BUILD_FLAGS = "\
     ${EXTRA_CARGO_FLAGS} \
 "
 
-create_cargo_config() {
-    if [ "${RUST_BUILD}" != "${RUST_TARGET}" ]; then
-        echo > ${CARGO_HOME}/config
-        echo "[target.${RUST_BUILD}]" >> ${CARGO_HOME}/config
-        echo "linker = '${WRAPPER_DIR}/linker-native-wrapper.sh'" >> ${CARGO_HOME}/config
-
-        echo >> ${CARGO_HOME}/config
-        echo "[target.${RUST_TARGET}]" >> ${CARGO_HOME}/config
-        echo "linker = '${WRAPPER_DIR}/linker-wrapper.sh'" >> ${CARGO_HOME}/config
-    else
-        echo > ${CARGO_HOME}/config
-        echo "[target.${RUST_TARGET}]" >> ${CARGO_HOME}/config
-        echo "linker = '${WRAPPER_DIR}/linker-wrapper.sh'" >> ${CARGO_HOME}/config
-    fi
-
-    echo >> ${CARGO_HOME}/config
-    echo "[build]" >> ${CARGO_HOME}/config
-    echo "rustflags = ['-C', 'rpath']" >> ${CARGO_HOME}/config
-
-    echo >> ${CARGO_HOME}/config
-    echo "[profile.release]" >> ${CARGO_HOME}/config
-    echo "debug = true" >> ${CARGO_HOME}/config
-}
-
-cargo_do_configure() {
+cargo_bin_do_configure() {
     mkdir -p "${B}"
     mkdir -p "${CARGO_HOME}"
     mkdir -p "${WRAPPER_DIR}"
@@ -106,21 +82,35 @@ cargo_do_configure() {
     echo "#!/bin/sh" >"${WRAPPER_DIR}/linker-native-wrapper.sh"
     echo "${BUILD_CC} ${BUILD_LDFLAGS} \"\$@\"" >>"${WRAPPER_DIR}/linker-native-wrapper.sh"
     chmod +x "${WRAPPER_DIR}/linker-native-wrapper.sh"
-
-    # Create our global config in CARGO_HOME
-    create_cargo_config
 }
 
-cargo_do_compile() {
+cargo_bin_do_compile() {
     export TARGET_CC="${WRAPPER_DIR}/cc-wrapper.sh"
     export TARGET_CXX="${WRAPPER_DIR}/cxx-wrapper.sh"
     export CC="${WRAPPER_DIR}/cc-native-wrapper.sh"
     export CXX="${WRAPPER_DIR}/cxx-native-wrapper.sh"
-    export TARGET_LD="${WRAPPER_DIR}/ld-wrapper.sh"
-    export LD="${WRAPPER_DIR}/ld-native-wrapper.sh"
     export PKG_CONFIG_ALLOW_CROSS="1"
     export LDFLAGS=""
     export RUSTFLAGS="${RUSTFLAGS}"
+    export SSH_AUTH_SOCK="${SSH_AUTH_SOCK}"
+
+    # This "DO_NOT_USE_THIS" option of cargo is currently the only way to
+    # configure a different linker for host and target builds when RUST_BUILD ==
+    # RUST_TARGET.
+    export __CARGO_TEST_CHANNEL_OVERRIDE_DO_NOT_USE_THIS="nightly"
+    export CARGO_UNSTABLE_TARGET_APPLIES_TO_HOST="true"
+    export CARGO_UNSTABLE_HOST_CONFIG="true"
+    export CARGO_TARGET_APPLIES_TO_HOST="false"
+    export CARGO_TARGET_${@rust_target(d, 'TARGET').replace('-','_').upper()}_LINKER="${WRAPPER_DIR}/linker-wrapper.sh"
+    export CARGO_HOST_LINKER="${WRAPPER_DIR}/linker-native-wrapper.sh"
+    export CARGO_BUILD_FLAGS="-C rpath"
+    export CARGO_PROFILE_RELEASE_DEBUG="true"
+
+    # The CC crate defaults to using CFLAGS when compiling everything. We can
+    # give it custom flags for compiling on the host.
+    export HOST_CXXFLAGS=""
+    export HOST_CFLAGS=""
+
     bbnote "which rustc:" `which rustc`
     bbnote "rustc --version" `rustc --version`
     bbnote "which cargo:" `which cargo`
@@ -129,7 +119,7 @@ cargo_do_compile() {
     cargo build ${CARGO_BUILD_FLAGS}
 }
 
-cargo_do_install() {
+cargo_bin_do_install() {
     if [ "${CARGO_BUILD_TYPE}" = "--release" ]; then
         local cargo_bindir="${CARGO_RELEASE_DIR}"
     else
@@ -141,9 +131,9 @@ cargo_do_install() {
     for tgt in "${cargo_bindir}"/*; do
         case $tgt in
             *.so|*.rlib)
-#                install -d "${D}${libdir}"
-#                install -m755 "$tgt" "${D}${libdir}"
-#                files_installed="$files_installed $tgt"
+                install -d "${D}${libdir}"
+                install -m755 "$tgt" "${D}${libdir}"
+                files_installed="$files_installed $tgt"
                 ;;
             *examples)
                 if [ -d "$tgt" ]; then
